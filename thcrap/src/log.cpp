@@ -42,14 +42,9 @@ static void(*log_nprint_hook)(const char*, size_t) = NULL;
 static HWND mbox_owner_hwnd = NULL; // Set by log_mbox_set_owner
 // -----------------------
 
-struct lasterror_t {
-	char str[DECIMAL_DIGITS_BOUND(DWORD) + 1];
-};
-
-THREAD_LOCAL(lasterror_t, lasterror_tls, nullptr, nullptr);
-
 const char* lasterror_str_for(DWORD err)
 {
+	TH_THREAD_LOCAL static char str[DECIMAL_DIGITS_BOUND(DWORD) + 1];
 	switch(err) {
 	case ERROR_SHARING_VIOLATION:
 		return "File in use";
@@ -58,13 +53,9 @@ const char* lasterror_str_for(DWORD err)
 	default: // -Wswitch...
 		break;
 	}
-	auto str = lasterror_tls_get();
-	if(!str) {
-		static lasterror_t lasterror_static;
-		str = &lasterror_static;
-	}
-	snprintf(str->str, sizeof(str->str), "%lu", err);
-	return str->str;
+
+	snprintf(str, sizeof(str), "%lu", err);
+	return str;
 }
 
 const char* lasterror_str()

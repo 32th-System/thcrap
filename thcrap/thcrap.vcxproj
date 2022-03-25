@@ -74,7 +74,6 @@
     <ClCompile Include="src\thcrap_update_wrapper.cpp" />
     <ClCompile Include="src\vfs.cpp" />
     <ClCompile Include="src\win32_detour.cpp" />
-    <ClCompile Include="src\xpcompat.cpp" />
     <ClCompile Include="src\zip.cpp" />
     <ClInclude Include="src\compiler_support.h" />
     <ClInclude Include="src\dialog.h" />
@@ -113,7 +112,6 @@
     <ClInclude Include="src\thcrap_update_wrapper.h" />
     <ClInclude Include="src\vfs.h" />
     <ClInclude Include="src\win32_detour.h" />
-    <ClInclude Include="src\xpcompat.h" />
     <ClInclude Include="src\zip.h" />
     <GAS Include="src\bp_entry.asm" />
     <GAS Include="src\inject_func.asm" />

@@ -64,7 +64,6 @@ extern "C" {
 #include "jsondata.h"
 #include "zip.h"
 #include "bp_file.h"
-#include "xpcompat.h"
 #include "repo.h"
 #include "search.h"
 #include "shelllink.h"

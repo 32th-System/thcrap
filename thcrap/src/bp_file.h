@@ -13,7 +13,7 @@
 #pragma once
 
 // File replacement state
-typedef struct {
+typedef struct _file_rep_t {
 	// Combined JSON patch to be applied to the file, and its maximum size
 	json_t *patch;
 	size_t patch_size;
@@ -31,6 +31,11 @@ typedef struct {
 
 	void *game_buffer;
 } file_rep_t;
+
+/// Thread-local storage
+/// --------------------
+file_rep_t* fr_tls_get(void);
+/// --------------------
 
 // Initialize a file_rep_t object, and loads the replacement file and patch for file_name.
 int file_rep_init(file_rep_t *fr, const char *file_name);

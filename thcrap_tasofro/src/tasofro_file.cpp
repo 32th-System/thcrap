@@ -10,16 +10,16 @@
 #include <thcrap.h>
 #include "tasofro_file.h"
 
-THREAD_LOCAL(TasofroFile*, TasofroFile_tls, nullptr, nullptr);
+TH_THREAD_LOCAL TasofroFile* TasofroFile_tls;
 
 TasofroFile *TasofroFile::tls_get()
 {
-	return *TasofroFile_tls_get();
+	return TasofroFile_tls;
 }
 
 void TasofroFile::tls_set(TasofroFile *file)
 {
-	*TasofroFile_tls_get() = file;
+	TasofroFile_tls = file;
 }
 
 TasofroFile::TasofroFile()

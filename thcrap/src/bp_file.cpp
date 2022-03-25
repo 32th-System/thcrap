@@ -51,29 +51,26 @@ int file_rep_clear(file_rep_t *fr)
 
 /// Thread-local storage
 /// --------------------
-THREAD_LOCAL(file_rep_t, fr_tls, NULL, file_rep_clear);
+TH_THREAD_LOCAL file_rep_t fr_tls;
+file_rep_t* fr_tls_get() { return &fr_tls; }
 /// --------------------
 
 /// Replace a file loaded entirely in memory
 /// ----------------------------------------
 int BP_file_buffer(x86_reg_t *regs, json_t *bp_info)
 {
-	file_rep_t *fr = fr_tls_get();
-
 	// Parameters
 	// ----------
 	auto file_buffer = (BYTE**)json_object_get_pointer(bp_info, regs, "file_buffer");
 	// ----------
 	if(file_buffer) {
-		fr->game_buffer = *file_buffer;
+		fr_tls.game_buffer = *file_buffer;
 	}
 	return 1;
 }
 
 int BP_file_load(x86_reg_t *regs, json_t *bp_info)
 {
-	file_rep_t *fr = fr_tls_get();
-
 	// Mandatory parameters
 	// --------------------
 	auto file_name = (char**)json_object_get_pointer(bp_info, regs, "file_name");
@@ -82,7 +79,7 @@ int BP_file_load(x86_reg_t *regs, json_t *bp_info)
 	// -----------------
 
 	if(file_name) {
-		file_rep_init(fr, *file_name);
+		file_rep_init(&fr_tls, *file_name);
 	}
 
 	// th08 and th09 use their file size variable as the loop counter for LZSS
@@ -98,15 +95,15 @@ int BP_file_load(x86_reg_t *regs, json_t *bp_info)
 	// This allows this breakpoint to be placed in front of memory allocation
 	// calls that are used for more than just replaceable files, without
 	// affecting unrelated memory allocations.
-	if(file_size && fr->name) {
-		if(!fr->pre_json_size) {
-			fr->pre_json_size = *file_size;
+	if(file_size && fr_tls.name) {
+		if(!fr_tls.pre_json_size) {
+			fr_tls.pre_json_size = *file_size;
 		}
-		*file_size = POST_JSON_SIZE(fr);
+		*file_size = POST_JSON_SIZE(&fr_tls);
 	}
 
 	// Got everything for a full file replacement?
-	if(!fr->game_buffer || !fr->rep_buffer || !fr->pre_json_size) {
+	if(!fr_tls.game_buffer || !fr_tls.rep_buffer || !fr_tls.pre_json_size) {
 		return 1;
 	}
 
@@ -118,20 +115,20 @@ int BP_file_load(x86_reg_t *regs, json_t *bp_info)
 	// ------------------------
 
 	// Let's do it
-	memcpy(fr->game_buffer, fr->rep_buffer, fr->pre_json_size);
+	memcpy(fr_tls.game_buffer, fr_tls.rep_buffer, fr_tls.pre_json_size);
 
-	file_rep_hooks_run(fr);
+	file_rep_hooks_run(&fr_tls);
 
 	if(eip_jump_dist) {
 		regs->retaddr += eip_jump_dist;
 	}
 	if(file_buffer_addr_copy) {
-		*file_buffer_addr_copy = (size_t)fr->game_buffer;
+		*file_buffer_addr_copy = (size_t)fr_tls.game_buffer;
 	}
 	if(stack_clear_size) {
 		regs->esp += stack_clear_size;
 	}
-	file_rep_clear(fr);
+	file_rep_clear(&fr_tls);
 	return 0;
 }
 
@@ -167,7 +164,6 @@ int DumpDatFile(const char *dir, const file_rep_t *fr)
 
 int BP_file_loaded(x86_reg_t *regs, json_t *bp_info)
 {
-	file_rep_t *fr = fr_tls_get();
 	const char *dat_dump;
 
 	// Other breakpoints
@@ -175,15 +171,15 @@ int BP_file_loaded(x86_reg_t *regs, json_t *bp_info)
 	BP_file_buffer(regs, bp_info);
 	// -----------------
 
-	if(!fr->game_buffer) {
+	if(!fr_tls.game_buffer) {
 		return 1;
 	}
 	dat_dump = runconfig_dat_dump_get();
 	if(dat_dump) {
-		DumpDatFile(dat_dump, fr);
+		DumpDatFile(dat_dump, &fr_tls);
 	}
 
-	file_rep_hooks_run(fr);
-	file_rep_clear(fr);
+	file_rep_hooks_run(&fr_tls);
+	file_rep_clear(&fr_tls);
 	return 1;
 }

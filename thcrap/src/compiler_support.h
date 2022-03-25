@@ -290,6 +290,15 @@
 #define TH_UNLIKELY
 #endif
 
+// - Thread local storage
+#if defined(GCC_COMPAT)
+# define TH_THREAD_LOCAL __thread
+#elif defined(MSVC_COMPAT)
+# define TH_THREAD_LOCAL __declspec(thread)
+#else
+# define TH_THREAD_LOCAL
+#endif
+
 // - Unreachable Code Hint
 // Note: MSVC __assume(0) is documented here:
 // https://docs.microsoft.com/en-us/cpp/intrinsics/assume

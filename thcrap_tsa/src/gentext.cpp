@@ -16,7 +16,7 @@ typedef struct {
 	size_t line;
 } gentext_cache_t;
 
-THREAD_LOCAL(gentext_cache_t, gc_tls, nullptr, nullptr);
+TH_THREAD_LOCAL gentext_cache_t gc_tls;
 
 int gentext_cache_key_set(gentext_cache_t *gc, const char *key, size_t key_len)
 {
@@ -42,8 +42,6 @@ int gentext_cache_key_set(gentext_cache_t *gc, const char *key, size_t key_len)
 
 int BP_gentext(x86_reg_t *regs, json_t *bp_info)
 {
-	gentext_cache_t *gc = gc_tls_get();
-
 	// Parameters
 	// ----------
 	json_t *strs = json_object_get(bp_info, "str");
@@ -52,7 +50,7 @@ int BP_gentext(x86_reg_t *regs, json_t *bp_info)
 	json_t *line_obj = json_object_get(bp_info, "line");
 	// ----------
 	if(file) {
-		gc->file = jsondata_game_get(file);
+		gc_tls.file = jsondata_game_get(file);
 	}
 	if(ids) {
 		const size_t value_len = DECIMAL_DIGITS_BOUND(size_t);
@@ -71,14 +69,14 @@ int BP_gentext(x86_reg_t *regs, json_t *bp_info)
 			while(*p++ = *q++);
 			p--;
 		}
-		gentext_cache_key_set(gc, key_new, key_new_len);
+		gentext_cache_key_set(&gc_tls, key_new, key_new_len);
 		VLA_FREE(key_new);
 	}
 	if(line_obj) {
-		gc->line = json_immediate_value(line_obj, regs);
+		gc_tls.line = json_immediate_value(line_obj, regs);
 	}
 	if(strs) {
-		json_t *id_val = json_object_get(gc->file, gc->key);
+		json_t *id_val = json_object_get(gc_tls.file, gc_tls.key);
 		json_t *str;
 
 		// More straightforward if we ensure that everything below is valid.
@@ -88,7 +86,7 @@ int BP_gentext(x86_reg_t *regs, json_t *bp_info)
 
 		json_flex_array_foreach_scoped(size_t, i, strs, str) {
 			const char **target = (const char **)json_pointer_value(str, regs);
-			const char *line = json_flex_array_get_string_safe(id_val, gc->line++);
+			const char *line = json_flex_array_get_string_safe(id_val, gc_tls.line++);
 			assert(line);
 			*target = line;
 		}
