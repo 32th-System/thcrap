@@ -46,9 +46,6 @@ DETOUR_CHAIN_DEF(LoadLibraryW);
 /// -------------
 
 /**
-  * A more complete DLL injection solution.
-  * Adapted from http://www.codeproject.com/Articles/20084/completeinject.
-  *
   * Parameters
   * ----------
   *	HANDLE hProcess
@@ -96,164 +93,30 @@ DETOUR_CHAIN_DEF(LoadLibraryW);
   * handling, so the end user knows if something went wrong.
   */
 
-extern "C" {
-	extern const uint8_t inject;
-	extern const uint8_t inject_dlldirptr;
-	extern const uint8_t inject_loadlibraryflagsptr;
-	extern const uint8_t inject_dllnameptr;
-	extern const uint8_t inject_funcnameptr;
-	extern const uint8_t inject_funcparamptr;
-	extern const uint8_t inject_end;
-
-	extern const uint8_t inject_GetCurrentDirectoryWptr;
-	extern const uint8_t inject_SetCurrentDirectoryWptr;
-	extern const uint8_t inject_LoadLibraryExWptr;
-	extern const uint8_t inject_ExitThreadptr;
-	extern const uint8_t inject_GetProcAddressptr;
-	extern const uint8_t inject_FreeLibraryAndExitThreadptr;
-}
-
-// Calculate all the offsets once and store them for later
-static const size_t inject_size = &inject_end - &inject;
-static const size_t inject_dlldir = &inject_dlldirptr + 1 - &inject;
-static const size_t inject_loadlibraryflags = &inject_loadlibraryflagsptr + 1 - &inject;
-static const size_t inject_dllname = &inject_dllnameptr + 1 - &inject;
-static const size_t inject_funcname = &inject_funcnameptr + 1 - &inject;
-static const size_t inject_funcparam = &inject_funcparamptr + 1 - &inject;
-
-static const size_t inject_GetCurrentDirectoryW = &inject_GetCurrentDirectoryWptr + 1 - &inject;
-static const size_t inject_SetCurrentDirectoryW = &inject_SetCurrentDirectoryWptr + 1 - &inject;
-static const size_t inject_LoadLibraryExW = &inject_LoadLibraryExWptr + 1 - &inject;
-static const size_t inject_ExitThread = &inject_ExitThreadptr + 1 - &inject;
-static const size_t inject_GetProcAddress = &inject_GetProcAddressptr + 1 - &inject;
-static const size_t inject_FreeLibraryAndExitThread = &inject_FreeLibraryAndExitThreadptr + 1 - &inject;
-
 int Inject(const HANDLE hProcess, const wchar_t *const dll_dir, const wchar_t *const dll_fn, const char *const func_name, const void *const param, const size_t param_size)
 {
-	#define have_kb2533623 ((bool)GetProcAddress(GetModuleHandleA("kernel32.dll"), "SetDefaultDllDirectories"))
+	SIZE_T rBuf_len = wcslen(dll_fn) * sizeof(wchar_t) + param_size + strlen(func_name) + 8;
+	LPVOID rBuf = VirtualAllocEx(hProcess, 0, rBuf_len, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	SIZE_T byteRet;
+	HANDLE hThread;
 
-	size_t dll_dir_size = 0;
-	size_t dll_dir_total_size = 0;
-	if (dll_dir) {
-		dll_dir_size = (wcslen(dll_dir) + 1) * 2;
-		dll_dir_total_size = AlignUpToMultipleOf2(dll_dir_size, 4);
-	}
-
-	const size_t dll_fn_size = (wcslen(dll_fn) + 1) * 2;
-	const size_t dll_fn_total_size = AlignUpToMultipleOf2(dll_fn_size, 4);
-
-	const size_t func_name_size = strlen(func_name) + 1;
-	const size_t func_name_total_size = AlignUpToMultipleOf2(func_name_size, 4);
-
-	const size_t param_total_size = AlignUpToMultipleOf2(param_size, 4);
-
-	const size_t grand_total_size = dll_dir_total_size + dll_fn_total_size + func_name_total_size + param_total_size + inject_size;
-
-	// The workspace we will build the codecave on locally.
-	uint8_t *const Buffer = (uint8_t *const)malloc(grand_total_size);
-
-#define PatchInjectInst(inject_instance, inject_offset, type, value) \
-{\
-	type *const inject_instance_ptr = (type *const)((uintptr_t)(inject_instance) + (size_t)(inject_offset));\
-	*inject_instance_ptr = (type)(value);\
-}
-
-	// Allocate space for the codecave in the process
-	uint8_t *const CodecaveAddress = (uint8_t*)VirtualAllocEx(hProcess, 0, grand_total_size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-
-	// Calculate an offset value to produce correct addresses
-	// when writing the codecave to the other process.
-	const size_t BufferOffset = CodecaveAddress - Buffer;
-
-	uint8_t* workspace = Buffer;
-
-	uint8_t* inject_ptr = (uint8_t*)memcpy(workspace, &inject, inject_size);
-	workspace += inject_size;
-
-	// Function Parameter
-	uint8_t *const param_ptr = (uint8_t*)memcpy(workspace, param, param_size) + BufferOffset;
-	workspace += param_total_size;
-	PatchInjectInst(inject_ptr, inject_funcparam, const void*, param_ptr);
-
-	// Directory name
-	if (dll_dir) {
-		uint8_t *const dll_dir_ptr = (uint8_t*)memcpy(workspace, dll_dir, dll_dir_size) + BufferOffset;
-		workspace += dll_dir_total_size;
-		PatchInjectInst(inject_ptr, inject_dlldir, const wchar_t*, dll_dir_ptr);
-	}
-	
-	// Dll Name
-	uint8_t *const dll_fn_ptr = (uint8_t*)memcpy(workspace, dll_fn, dll_fn_size) + BufferOffset;
-	workspace += dll_fn_total_size;
-	PatchInjectInst(inject_ptr, inject_dllname, const wchar_t*, dll_fn_ptr);
-
-	// Function Name
-	uint8_t *const func_name_ptr = (uint8_t *)memcpy(workspace, func_name, func_name_size) + BufferOffset;
-	PatchInjectInst(inject_ptr, inject_funcname, const char*, func_name_ptr);
-
-	PatchInjectInst(inject_ptr, inject_loadlibraryflags, size_t, PathIsRelativeW(dll_fn) || !have_kb2533623 ? 0 : LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
-
-	// Kernel functions will be located at
-	// the same address in both processes.
-	PatchInjectInst(inject_ptr, inject_GetCurrentDirectoryW, const void*, &GetCurrentDirectoryW);
-	PatchInjectInst(inject_ptr, inject_SetCurrentDirectoryW, const void*, &SetCurrentDirectoryW);
-	PatchInjectInst(inject_ptr, inject_LoadLibraryExW, const void*, &LoadLibraryExW);
-	PatchInjectInst(inject_ptr, inject_ExitThread, const void*, &ExitThread);
-	PatchInjectInst(inject_ptr, inject_GetProcAddress, const void*, &GetProcAddress);
-	PatchInjectInst(inject_ptr, inject_FreeLibraryAndExitThread, const void*, &FreeLibraryAndExitThread);
-
-	// Return code of injection function
-	DWORD return_value;
-
-	// Write out the patch, using return_value as a place to dump
-	// an irrelevant value since it'll get overwritten later anyway.
-	WriteProcessMemory(hProcess, CodecaveAddress, Buffer, grand_total_size, &return_value);
-
-	// Free the workspace memory
-	free(Buffer);
-
-	// Make sure our changes are written right away
-	FlushInstructionCache(hProcess, CodecaveAddress, grand_total_size);
-
-	// Execute the thread now and wait for it to exit, note we execute where the code starts, and not the codecave start
-	// (since we wrote strings at the start of the codecave)
-	HANDLE hThread = CreateRemoteThread(hProcess, NULL, 0, (LPTHREAD_START_ROUTINE)CodecaveAddress, 0, 0, NULL);
+	WriteProcessMemory(hProcess, rBuf, dll_fn, wcslen(dll_fn) * sizeof(wchar_t), &byteRet);
+	hThread = CreateRemoteThread(hProcess, NULL, 0, (LPTHREAD_START_ROUTINE)LoadLibraryW, rBuf, 0, NULL);
 	WaitForSingleObject(hThread, INFINITE);
-
-	// Cleanup and retrieve exit code
-	GetExitCodeThread(hThread, &return_value);
+	uintptr_t hSelfRemote;
+	GetExitCodeThread(hThread, (LPDWORD)&hSelfRemote);
 	CloseHandle(hThread);
 
-	// Free the memory in the process that we allocated
-	VirtualFreeEx(hProcess, CodecaveAddress, 0, MEM_RELEASE);
+	HMODULE hSelf = GetModuleHandleW(dll_fn);
+	uintptr_t func = (uintptr_t)GetProcAddress(hSelf, func_name);
 
-	// 
-	switch (return_value) {
-		case 1: {
-			static const wchar_t *const injectError1Format =
-				L"Could not inject %ls.\n"
-				"\n"
-				"If you're running Windows Vista or 7, make sure that you have installed the KB2533623 update:\n"
-				"\n"
-				"\thttp://support.microsoft.com/kb/2533623/";
-			const size_t injectError1_len = _scwprintf(injectError1Format, dll_fn) + 1;
-			wchar_t *const injectError1 = (wchar_t*)malloc(injectError1_len);
-			swprintf(injectError1, injectError1_len, injectError1Format, dll_fn);
-			MessageBoxW(0, injectError1, L"Error", MB_ICONERROR);
-			free(injectError1);
-			break;
-		}
-		case 2: {
-			static const char *const injectError2Format =
-				"Could not load the function: %s";
-			char *const injectError2 = (char*)malloc(snprintf(NULL, 0, injectError2Format, func_name) + 1);
-			sprintf(injectError2, injectError2Format, func_name);
-			MessageBoxA(0, injectError2, "Error", MB_ICONERROR);
-			free(injectError2);
-			break;
-		}
-	}
-	return return_value;
+	func = func - (uintptr_t)hSelf + hSelfRemote;
+	WriteProcessMemory(hProcess, rBuf, param, param_size, &byteRet);
+	hThread = CreateRemoteThread(hProcess, NULL, 0, (LPTHREAD_START_ROUTINE)func, rBuf, 0, NULL);
+	WaitForSingleObject(hThread, INFINITE);
+	VirtualFreeEx(hProcess, rBuf, rBuf_len, MEM_DECOMMIT | MEM_RELEASE);
+
+	return 0;
 }
 
 int thcrap_inject_into_running(HANDLE hProcess, const char *run_cfg)
